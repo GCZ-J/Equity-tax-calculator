@@ -28,6 +28,64 @@ import pandas as pd
 import io
 import math
 
+# ---------------------- 自定义深色主题CSS ----------------------
+st.markdown("""
+    <style>
+    /* 全局背景+文字 */
+    .stApp {
+        background-color: #1a1a1a;
+        color: #e0e0e0;
+    }
+    /* 侧边栏 */
+    section[data-testid="stSidebar"] {
+        background-color: #242424;
+    }
+    /* 文本颜色统一 */
+    .stMarkdown, .stText, .stSelectbox, .stCheckbox, .stNumberInput, .stButton, .stSlider {
+        color: #e0e0e0;
+    }
+    /* 按钮样式 */
+    button[kind="primary"] {
+        background-color: #333333;
+        color: #e0e0e0;
+        border: 1px solid #444444;
+    }
+    button[kind="primary"]:hover {
+        background-color: #444444;
+    }
+    /* 展开面板 */
+    div[data-testid="stExpander"] {
+        background-color: #242424;
+        border: 1px solid #333333;
+    }
+    /* 表格样式 */
+    .stDataFrame {
+        color: #e0e0e0;
+    }
+    /* 指标卡片 */
+    div[data-testid="stMetric"] {
+        background-color: #242424;
+        border: 1px solid #333333;
+        padding: 10px;
+        border-radius: 4px;
+    }
+    div[data-testid="stMetric"] label {
+        color: #cccccc;
+    }
+    div[data-testid="stMetric"] div {
+        color: #ffffff;
+    }
+    /* 滑块样式 */
+    div[data-testid="stSlider"] div {
+        color: #e0e0e0;
+    }
+    /* 分割线 */
+    hr {
+        border-color: #333333;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 # ---------------------- 页面基础配置 ----------------------
 st.set_page_config(
     page_title="股权激励计税工具",
@@ -107,13 +165,13 @@ TAX_RULES = {
     }
 }
 
-# ---------------------- 条件格式化函数 ----------------------
+# ---------------------- 条件格式化函数（适配深色） ----------------------
 def highlight_tax_cell(val, threshold):
-    """税款超过阈值时标灰"""
-    GRAY_COLOR = "#f0f0f0"  # 极简浅灰色
+    """深色背景下，税款超过阈值时标浅灰"""
+    HIGHLIGHT_COLOR = "#333333"  # 深色背景下的浅灰高亮
     if isinstance(val, (int, float)) and val > threshold:
-        return f"background-color: {GRAY_COLOR}"
-    return ""
+        return f"background-color: {HIGHLIGHT_COLOR}; color: #e0e0e0"
+    return f"color: #e0e0e0"
 
 def apply_tax_highlight(df, tax_columns, threshold):
     """对指定税款列应用格式化"""
@@ -321,10 +379,10 @@ with st.sidebar:
         value=st.session_state.tax_threshold,
         format="%.0f 元"     # 显示格式：整数+元
     )
-    # 滑块下方显示当前金额（突出展示）
+    # 滑块下方显示当前金额（适配深色）
     st.markdown(f"""
-    <div style="text-align: center; font-size: 16px; font-weight: 500; margin-top: -10px;">
-        当前阈值：<span style="color: #333;">{st.session_state.tax_threshold:,.0f}</span> 元
+    <div style="text-align: center; font-size: 16px; font-weight: 500; margin-top: -10px; color: #e0e0e0;">
+        当前阈值：<span style="color: #ffffff;">{st.session_state.tax_threshold:,.0f}</span> 元
     </div>
     """, unsafe_allow_html=True)
 
@@ -431,7 +489,7 @@ if calc_btn:
                 value=f"{total_sold_shares} 股"
             )
         
-        st.markdown("---") # 极简分割线
+        st.markdown("---") # 分割线
         
         # 2. 年度财务核心指标（三列等分）
         col1, col2, col3 = st.columns(3)
@@ -461,7 +519,7 @@ if calc_btn:
             "应缴税款(元)", "抵税股出售数量(股)", "剩余到账股数(股)", "实际持有数量(股)"
         ]
         detail_df = pd.DataFrame(detail_results)[show_cols]
-        # 兼容版列配置（移除align参数）
+        # 兼容版列配置
         column_config = {
             "记录ID": st.column_config.TextColumn("记录ID", width="small"),
             "激励工具类型": st.column_config.TextColumn("工具类型", width="medium"),
@@ -508,7 +566,7 @@ if calc_btn:
             use_container_width=True
         )
 
-        # ---------------------- 税款构成（低饱和灰色系饼图） ----------------------
+        # ---------------------- 税款构成（深色系低饱和饼图） ----------------------
         st.subheader("税款构成")
         tax_data = pd.DataFrame({
             "税款类型": ["股权激励税款", "转让税款"],
@@ -519,14 +577,21 @@ if calc_btn:
             values="金额(元)", 
             names="税款类型", 
             hole=0.4,
-            color_discrete_sequence=["#dcdcdc", "#c0c0c0"] # 极简灰色系
+            color_discrete_sequence=["#444444", "#555555"]  # 深色系低饱和灰
         )
+        # 适配深色背景的饼图样式
         fig.update_layout(
             showlegend=True, 
-            legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
-            font=dict(size=12, color="#333333")
+            legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5, textcolor="#e0e0e0"),
+            font=dict(size=12, color="#e0e0e0"),
+            paper_bgcolor="#1a1a1a",
+            plot_bgcolor="#1a1a1a"
         )
-        fig.update_traces(textposition="inside", textinfo="percent+label")
+        fig.update_traces(
+            textposition="inside", 
+            textinfo="percent+label",
+            textfont=dict(color="#ffffff")
+        )
         st.plotly_chart(fig, use_container_width=True)
 
         # ---------------------- 报税表单（条件格式化） ----------------------
