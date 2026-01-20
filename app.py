@@ -1,6 +1,30 @@
+# 兜底：自动安装缺失的依赖（防止Streamlit Cloud依赖安装失败）
+import subprocess
+import sys
+def install_package(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+try:
+    import plotly.express as px
+except ImportError:
+    install_package("plotly>=5.18.0")
+    import plotly.express as px
+
+try:
+    import xlsxwriter
+except ImportError:
+    install_package("xlsxwriter>=3.1.9")
+    import xlsxwriter
+
+try:
+    import openpyxl
+except ImportError:
+    install_package("openpyxl>=3.1.2")
+    import openpyxl
+
+# 核心库导入
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 from datetime import datetime
 import io
 
@@ -11,7 +35,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# ---------------------- 核心规则配置（保留原有所有逻辑） ----------------------
+# ---------------------- 核心规则配置 ----------------------
 # 1. 激励工具规则
 INCENTIVE_TOOLS = {
     "期权（Option）": {
@@ -50,7 +74,7 @@ EXERCISE_METHODS = {
     }
 }
 
-# 3. 多地区税务规则（新增报税表单核心字段）
+# 3. 多地区税务规则（含报税表单）
 TAX_RULES = {
     "中国大陆": {
         "exercise_tax_type": "综合所得",
@@ -161,7 +185,7 @@ TAX_RULES = {
     }
 }
 
-# ---------------------- 核心计算函数（保留原有逻辑） ----------------------
+# ---------------------- 核心计算函数 ----------------------
 def calculate_tax_brackets(income, brackets):
     tax = 0
     remaining = max(income, 0)
@@ -255,7 +279,7 @@ def calculate_equity_tax(
     }
     return result
 
-# ---------------------- 新增：报税表单生成函数 ----------------------
+# ---------------------- 报税表单生成函数（已补全参数） ----------------------
 def generate_tax_form(result, rule, tax_resident):
     """根据计算结果生成对应地区报税表单"""
     form_data = {}
@@ -285,7 +309,7 @@ def generate_tax_form(result, rule, tax_resident):
     })
     return form_df
 
-# ---------------------- 新增：结果导出函数（CSV+Excel） ----------------------
+# ---------------------- 结果导出函数 ----------------------
 def export_result_to_excel(result, form_df):
     """导出计算结果+报税表单到Excel"""
     output = io.BytesIO()
@@ -302,13 +326,12 @@ def export_result_to_excel(result, form_df):
     output.seek(0)
     return output
 
-# ---------------------- Streamlit 界面（整合所有优化） ----------------------
+# ---------------------- Streamlit 界面（缩进完全对齐） ----------------------
 st.title("🧮 股权激励个税计算器（全功能版）")
-st.markdown("### 多工具/行权方式/地区 | 参数记忆 | 结果双导出 | 税款可视化 | 多国报税表单自动生成")
+st.markdown("### 多工具/行权方式/地区 | 参数记忆 | 结果双导出 | 税款可视化 | 多国报税表单")
 st.divider()
 
-# ---------------------- 1. 参数记忆：初始化/加载session_state ----------------------
-# 基础配置参数
+# 1. 参数记忆初始化
 if "incentive_tool" not in st.session_state:
     st.session_state.incentive_tool = "期权（Option）"
 if "exercise_method" not in st.session_state:
@@ -317,7 +340,6 @@ if "tax_resident" not in st.session_state:
     st.session_state.tax_resident = "中国大陆"
 if "listing_location" not in st.session_state:
     st.session_state.listing_location = "境外"
-# 价格/数量参数
 if "exercise_price" not in st.session_state:
     st.session_state.exercise_price = 10.0
 if "exercise_quantity" not in st.session_state:
@@ -326,16 +348,14 @@ if "exercise_market_price" not in st.session_state:
     st.session_state.exercise_market_price = 20.0
 if "transfer_price" not in st.session_state:
     st.session_state.transfer_price = 0.0
-# 其他扣除参数
 if "other_income" not in st.session_state:
     st.session_state.other_income = 0.0
 if "special_deduction" not in st.session_state:
     st.session_state.special_deduction = 0.0
 
-# ---------------------- 2. 侧边栏输入：绑定session_state实现记忆 ----------------------
+# 2. 侧边栏输入（绑定session_state）
 with st.sidebar:
     st.header("📝 基础配置")
-    # 绑定session_state，自动填充上次值
     st.session_state.incentive_tool = st.selectbox("激励工具类型", list(INCENTIVE_TOOLS.keys()), index=list(INCENTIVE_TOOLS.keys()).index(st.session_state.incentive_tool))
     st.session_state.exercise_method = st.selectbox("行权/解禁方式", list(EXERCISE_METHODS.keys()), index=list(EXERCISE_METHODS.keys()).index(st.session_state.exercise_method))
     st.session_state.tax_resident = st.selectbox("税务居民身份", list(TAX_RULES.keys()), index=list(TAX_RULES.keys()).index(st.session_state.tax_resident))
@@ -352,14 +372,13 @@ with st.sidebar:
     st.session_state.other_income = st.number_input("年度其他综合所得（元）", min_value=0.0, step=1000.0, value=st.session_state.other_income)
     st.session_state.special_deduction = st.number_input("年度专项附加扣除（元）", min_value=0.0, step=1000.0, value=st.session_state.special_deduction)
     
-    # 计算按钮+智能提示
+    # 按钮
     calc_btn = st.button("🔍 开始计算", type="primary")
-    # 重置参数按钮
     if st.button("🔄 重置所有参数"):
         st.session_state.clear()
         st.rerun()
 
-# ---------------------- 3. 主界面：计算+结果展示+所有优化功能 ----------------------
+# 3. 主界面计算与展示
 if calc_btn:
     # 智能参数校验
     if st.session_state.exercise_quantity <= 0:
@@ -381,8 +400,8 @@ if calc_btn:
             special_deduction=st.session_state.special_deduction
         )
         rule = TAX_RULES[st.session_state.tax_resident]
-        # 生成报税表单
-       tax_form_df = generate_tax_form(result, rule, st.session_state.tax_resident)
+        # 生成报税表单（参数完整传入）
+        tax_form_df = generate_tax_form(result, rule, st.session_state.tax_resident)
 
         # 3.1 核心计算结果
         st.subheader("📊 核心计算结果")
@@ -390,7 +409,7 @@ if calc_btn:
         core_df = pd.DataFrame([core_result]).T
         st.dataframe(core_df, column_config={"0": "数值"}, use_container_width=True)
 
-        # 3.2 税款构成可视化：Plotly饼图
+        # 3.2 税款构成饼图
         st.divider()
         st.subheader("📈 税款构成分析")
         tax_data = pd.DataFrame({
@@ -418,7 +437,7 @@ if calc_btn:
             st.info(f"**行权税款**：{result['行权税款计算公式']}")
             st.info(f"**转让税款**：{result['转让税款计算公式']}")
 
-        # 3.4 结果导出：CSV+Excel
+        # 3.4 结果导出
         st.divider()
         st.subheader("📥 计算结果导出（含报税表单）")
         export_cols = st.columns(2)
@@ -432,7 +451,7 @@ if calc_btn:
                 mime="text/csv",
                 use_container_width=True
             )
-        # Excel导出（核心结果+公式+报税表单）
+        # Excel导出
         with export_cols[1]:
             excel_data = export_result_to_excel(result, tax_form_df)
             st.download_button(
@@ -443,13 +462,13 @@ if calc_btn:
                 use_container_width=True
             )
 
-        # 3.5 多国报税表单自动生成
+        # 3.5 报税表单
         st.divider()
         st.subheader("📋 专属报税表单模板（自动生成）")
         st.markdown(f"### 适用表单：{result['适用报税表单']}")
         st.markdown("#### 表单字段可直接复制，补充空白项后即可填写官方报税表")
         st.dataframe(tax_form_df, use_container_width=True)
-        # 报税表单单独导出
+        # 单独导出报税表单
         form_csv = tax_form_df.to_csv(index=False, encoding="utf-8-sig")
         st.download_button(
             label="📄 单独导出报税表单为CSV",
@@ -458,9 +477,9 @@ if calc_btn:
             mime="text/csv"
         )
 
-# ---------------------- 底部说明 ----------------------
+# 免责声明
 st.divider()
 st.markdown("""
 > ⚠️ 免责声明：本工具为税务参考工具，报税表单为简易模板；实际税款及报税请以当地税务机关核定和官方表单为准，建议咨询专业税务师。
-> 📌 功能说明：参数自动记忆（关闭页面重新打开仍保留）、Excel导出含3个sheet（核心结果/计算公式/报税表单）、报税表单字段可直接复制。
+> 📌 功能说明：参数自动记忆、Excel导出含3个sheet、报税表单字段可直接复制。
 """)
