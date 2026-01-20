@@ -236,7 +236,7 @@ def calculate_single_record(record, tax_resident, listing_location):
                 transfer_tax += transfer_income * rule["state_tax_rate"]
         transfer_tax = round(transfer_tax, 2)
 
-    # 整理单条记录数据
+    # 整理单条记录数据（统一列名，避免后续KeyError）
     return {
         "记录ID": record_id,
         "激励工具类型": incentive_tool,
@@ -327,7 +327,7 @@ def generate_tax_form(yearly_result, detail_records, tax_resident):
                 if field == "应纳税所得额" and tax_resident == "中国大陆":
                     form_data[field] = max(yearly_result["年度汇总行权收入(元)"] + yearly_result["年度其他综合所得(元)"] - 60000 - yearly_result["年度专项附加扣除(元)"], 0)
                 elif field == "适用税率":
-                    form_data[field] = "3%-45%（超额累进）" if tax_resident == "中国大陆" else rule["exercise_tax_brackets"][-1][1] * 100 + "%"
+                    form_data[field] = "3%-45%（超额累进）" if tax_resident == "中国大陆" else f"{rule['exercise_tax_brackets'][-1][1] * 100}%"
                 elif field == "应缴税额":
                     form_data[field] = yearly_result["年度总税款(元)"]
                 else:
@@ -348,7 +348,7 @@ def generate_tax_form(yearly_result, detail_records, tax_resident):
             if field == "应纳税所得额" and tax_resident == "中国大陆":
                 summary_form_data[field] = max(yearly_result["年度汇总行权收入(元)"] + yearly_result["年度其他综合所得(元)"] - 60000 - yearly_result["年度专项附加扣除(元)"], 0)
             elif field == "适用税率":
-                summary_form_data[field] = "3%-45%（超额累进）" if tax_resident == "中国大陆" else rule["exercise_tax_brackets"][-1][1] * 100 + "%"
+                summary_form_data[field] = "3%-45%（超额累进）" if tax_resident == "中国大陆" else f"{rule['exercise_tax_brackets'][-1][1] * 100}%"
             elif field == "应缴税额":
                 summary_form_data[field] = yearly_result["年度总税款(元)"]
             else:
@@ -506,9 +506,14 @@ if calc_btn:
 
         st.success("✅ 计算完成！先展示单条明细，再展示年度合并结果")
 
-        # 4.1 单条交易明细
+        # 4.1 单条交易明细（修复列名不匹配问题）
         st.subheader("📈 单条交易明细数据")
-        show_detail_cols = ["记录ID", "激励工具类型", "行权方式", "行权价/授予价(元/股)", "行权数量(股)", "行权收入(元)", "实际持有数量(股)", "转让收入(元)", "转让税款(元)"]
+        # 关键修复：列名和calculate_single_record返回的列名完全一致
+        show_detail_cols = [
+            "记录ID", "激励工具类型", "行权方式", "行权价/授予价(元/股)", 
+            "行权/解禁数量(股)", "行权/解禁日市价(元/股)", "行权收入(元)", 
+            "实际持有数量(股)", "转让收入(元)", "转让税款(元)"
+        ]
         detail_df = pd.DataFrame(detail_results)
         st.dataframe(detail_df[show_detail_cols], use_container_width=True)
 
