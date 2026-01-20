@@ -60,14 +60,14 @@ EXERCISE_METHODS = {
         "formula": "实际持有数量=行权数量"
     },
     "卖股缴税（Sell to Cover）": {
-        "desc": "卖出部分股票支付税款，剩余股票持有",
+        "desc": "卖出部分股票支付【单条预计算税款】，剩余股票持有",
         "actual_quantity": lambda q, tax, ep, mp: q - (tax / (mp or 1)),
-        "formula": "实际持有数量=行权数量 - （税款÷行权日市价）"
+        "formula": "实际持有数量=行权数量 - （单条预计算税款÷行权日市价）"
     },
     "无现金行权（Cashless Hold）": {
         "desc": "券商垫付行权价，卖出部分股票偿还，剩余持有",
         "actual_quantity": lambda q, tax, ep, mp: q - ((ep*q + tax) / (mp or 1)),
-        "formula": "实际持有数量=行权数量 - （行权总价+税款）÷行权日市价"
+        "formula": "实际持有数量=行权数量 - （行权总价+单条预计算税款）÷行权日市价"
     }
 }
 
@@ -212,14 +212,14 @@ def calculate_single_record(record, tax_resident, listing_location):
     exercise_income = INCENTIVE_TOOLS[incentive_tool]["income_calc"](ep, mp, eq)
     exercise_income = max(exercise_income, 0.0)
 
-    # 2. 计算单条行权税款（预计算，合并时会重新核算）
+    # 2. 计算单条预计算行权税款（用于sell to cover计算持股数，非最终合并税款）
     rule = TAX_RULES[tax_resident]
     pre_exercise_tax = calculate_tax_brackets(exercise_income, rule["exercise_tax_brackets"])
     if tax_resident == "美国（加州）":
         pre_exercise_tax += exercise_income * rule["state_tax_rate"]
     pre_exercise_tax = round(pre_exercise_tax, 2)
 
-    # 3. 计算单条实际持有数量（根据行权方式）
+    # 3. 计算单条实际持有数量（根据行权方式，核心用预计算税款）
     actual_qty = EXERCISE_METHODS[exercise_method]["actual_quantity"](eq, pre_exercise_tax, ep, mp)
     actual_qty = max(round(actual_qty, 2), 0.0)
 
@@ -246,7 +246,7 @@ def calculate_single_record(record, tax_resident, listing_location):
         "行权/解禁日市价(元/股)": mp,
         "转让价(元/股)": tp,
         "行权收入(元)": exercise_income,
-        "预计算行权税款(元)": pre_exercise_tax,
+        "预计算行权税款(元)": pre_exercise_tax,  # sell to cover的计算依据
         "实际持有数量(股)": actual_qty,
         "转让收入(元)": transfer_income,
         "转让税款(元)": transfer_tax,
@@ -265,6 +265,7 @@ def calculate_yearly_consolidation(detail_records, tax_resident, listing_locatio
 
     # 2. 合并计算综合所得税款（行权收入）
     total_exercise_tax = 0.0
+    taxable_income = 0.0  # 新增：记录应纳税所得额，方便排查
     if rule["exercise_tax_type"] != "无个税":
         if tax_resident == "中国大陆":
             # 综合所得应纳税所得额 = 行权收入 + 其他综合所得 - 6万 - 专项附加扣除
@@ -272,7 +273,8 @@ def calculate_yearly_consolidation(detail_records, tax_resident, listing_locatio
             total_exercise_tax = calculate_tax_brackets(taxable_income, rule["exercise_tax_brackets"])
         else:
             # 其他地区直接按行权收入计税
-            total_exercise_tax = calculate_tax_brackets(total_exercise_income, rule["exercise_tax_brackets"])
+            taxable_income = max(total_exercise_income, 0.0)
+            total_exercise_tax = calculate_tax_brackets(taxable_income, rule["exercise_tax_brackets"])
             if tax_resident == "美国（加州）":
                 total_exercise_tax += total_exercise_income * rule["state_tax_rate"]
     total_exercise_tax = round(total_exercise_tax, 2)
@@ -288,13 +290,14 @@ def calculate_yearly_consolidation(detail_records, tax_resident, listing_locatio
     else:
         tax_form = rule["tax_form"]
 
-    # 整理年度合并结果
+    # 整理年度合并结果（新增应纳税所得额）
     return {
         "税务居民身份": tax_resident,
         "上市地": listing_location,
         "年度其他综合所得(元)": other_income,
         "年度专项附加扣除(元)": special_deduction,
         "年度汇总行权收入(元)": total_exercise_income,
+        "年度应纳税所得额(元)": taxable_income,  # 新增：展示扣除后数值
         "年度综合所得税款(元)": total_exercise_tax,
         "年度汇总转让收入(元)": total_transfer_income,
         "年度财产转让税款(元)": total_transfer_tax,
@@ -302,7 +305,7 @@ def calculate_yearly_consolidation(detail_records, tax_resident, listing_locatio
         "年度总收益(元)": total_yearly_income,
         "年度净收益(元)": net_income,
         "适用报税表单": tax_form,
-        "计税说明": "1. 行权收入计入综合所得合并计税；2. 转让收入计入财产转让所得单独计税"
+        "计税说明": "1. 行权收入计入综合所得合并计税；2. 转让收入计入财产转让所得单独计税；3. sell to cover用单条预计算税款"
     }
 
 # ---------------------- 报税表单生成函数 ----------------------
@@ -318,6 +321,7 @@ def generate_tax_form(yearly_result, detail_records, tax_resident):
             "股权激励类型": r["激励工具类型"],
             "行权方式": r["行权方式"],
             "行权收入(元)": r["行权收入(元)"],
+            "预计算行权税款(元)": r["预计算行权税款(元)"],
             "转让收入(元)": r["转让收入(元)"],
             "转让税款(元)": r["转让税款(元)"]
         }
@@ -325,7 +329,7 @@ def generate_tax_form(yearly_result, detail_records, tax_resident):
         for field in rule["form_fields"]:
             if field not in form_data:
                 if field == "应纳税所得额" and tax_resident == "中国大陆":
-                    form_data[field] = max(yearly_result["年度汇总行权收入(元)"] + yearly_result["年度其他综合所得(元)"] - 60000 - yearly_result["年度专项附加扣除(元)"], 0)
+                    form_data[field] = yearly_result["年度应纳税所得额(元)"]
                 elif field == "适用税率":
                     form_data[field] = "3%-45%（超额累进）" if tax_resident == "中国大陆" else f"{rule['exercise_tax_brackets'][-1][1] * 100}%"
                 elif field == "应缴税额":
@@ -340,13 +344,14 @@ def generate_tax_form(yearly_result, detail_records, tax_resident):
         "股权激励类型": "多种工具合并",
         "行权方式": "——",
         "行权收入(元)": yearly_result["年度汇总行权收入(元)"],
+        "预计算行权税款(元)": "——",
         "转让收入(元)": yearly_result["年度汇总转让收入(元)"],
         "转让税款(元)": yearly_result["年度财产转让税款(元)"]
     }
     for field in rule["form_fields"]:
         if field not in summary_form_data:
             if field == "应纳税所得额" and tax_resident == "中国大陆":
-                summary_form_data[field] = max(yearly_result["年度汇总行权收入(元)"] + yearly_result["年度其他综合所得(元)"] - 60000 - yearly_result["年度专项附加扣除(元)"], 0)
+                summary_form_data[field] = yearly_result["年度应纳税所得额(元)"]
             elif field == "适用税率":
                 summary_form_data[field] = "3%-45%（超额累进）" if tax_resident == "中国大陆" else f"{rule['exercise_tax_brackets'][-1][1] * 100}%"
             elif field == "应缴税额":
@@ -391,10 +396,10 @@ if "equity_records" not in st.session_state:
         {
             "id": 1,
             "incentive_tool": "期权（Option）",
-            "exercise_method": "现金行权（Cash Exercise）",
+            "exercise_method": "卖股缴税（Sell to Cover）",  # 默认改为sell to cover方便测试
             "exercise_price": 10.0,
             "exercise_quantity": 1000,
-            "exercise_market_price": 20.0,
+            "exercise_market_price": 50.0,  # 提高市价，让行权收入和预缴税不为0
             "transfer_price": 0.0
         }
     ]
@@ -418,10 +423,10 @@ with st.sidebar:
             st.session_state.equity_records.append({
                 "id": new_id,
                 "incentive_tool": "期权（Option）",
-                "exercise_method": "现金行权（Cash Exercise）",
+                "exercise_method": "卖股缴税（Sell to Cover）",
                 "exercise_price": 10.0,
                 "exercise_quantity": 1000,
-                "exercise_market_price": 20.0,
+                "exercise_market_price": 50.0,
                 "transfer_price": 0.0
             })
     with col_del:
@@ -506,22 +511,24 @@ if calc_btn:
 
         st.success("✅ 计算完成！先展示单条明细，再展示年度合并结果")
 
-        # 4.1 单条交易明细（修复列名不匹配问题）
+        # 4.1 单条交易明细（核心：展示预计算行权税款）
         st.subheader("📈 单条交易明细数据")
-        # 关键修复：列名和calculate_single_record返回的列名完全一致
         show_detail_cols = [
             "记录ID", "激励工具类型", "行权方式", "行权价/授予价(元/股)", 
             "行权/解禁数量(股)", "行权/解禁日市价(元/股)", "行权收入(元)", 
-            "实际持有数量(股)", "转让收入(元)", "转让税款(元)"
+            "预计算行权税款(元)", "实际持有数量(股)", "转让收入(元)", "转让税款(元)"
         ]
         detail_df = pd.DataFrame(detail_results)
         st.dataframe(detail_df[show_detail_cols], use_container_width=True)
 
-        # 4.2 年度合并计税结果
+        # 4.2 年度合并计税结果（新增应纳税所得额，方便排查）
         st.subheader("📊 年度合并计税结果")
         st.dataframe(pd.DataFrame([yearly_result]), use_container_width=True)
 
-        # 4.3 税款构成可视化
+        # 4.3 关键说明：解释预缴税和合并税款的区别
+        st.warning("⚠️ 关键说明：sell to cover计算持股数用的是【预计算行权税款】，不是合并后的综合所得税款！合并税款为0是因为扣除项抵消了收入。")
+
+        # 4.4 税款构成可视化
         st.subheader("📉 年度税款构成分析")
         tax_data = pd.DataFrame({
             "税款类型": ["综合所得税款（行权）", "财产转让税款（转让）"],
@@ -535,13 +542,13 @@ if calc_btn:
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("✅ 年度无应缴税款")
+            st.info("✅ 年度合并后无应缴税款，但单条预计算税款仍会影响sell to cover的持股数！")
 
-        # 4.4 报税表单模板
+        # 4.5 报税表单模板
         st.subheader("📋 年度报税表单模板（含明细+汇总）")
         st.dataframe(tax_form_df, use_container_width=True)
 
-        # 4.5 导出功能
+        # 4.6 导出功能
         st.subheader("📥 结果导出")
         col_excel, col_csv = st.columns(2)
         with col_excel:
