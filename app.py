@@ -52,7 +52,7 @@ INCENTIVE_TOOLS = {
     }
 }
 
-# 2. 行权方式规则（每条记录独立选择）
+# 2. 行权方式规则（新增卖股缴税的股数拆分逻辑）
 EXERCISE_METHODS = {
     "现金行权（Cash Exercise）": {
         "desc": "以现金支付行权价，全额持有股票",
@@ -62,7 +62,7 @@ EXERCISE_METHODS = {
     "卖股缴税（Sell to Cover）": {
         "desc": "卖出部分股票支付【单独计税税款】，剩余股票持有",
         "actual_quantity": lambda q, tax, ep, mp: q - (tax / (mp or 1)),
-        "formula": "实际持有数量=行权数量 - （单独计税税款÷行权日市价）"
+        "formula": "实际持有数量=行权数量 - （单独计税税款÷行权日市价）\n抵税股数=税款÷市价 | 剩余股数=行权数-抵税股数"
     },
     "无现金行权（Cashless Hold）": {
         "desc": "券商垫付行权价，卖出部分股票偿还，剩余持有",
@@ -124,7 +124,7 @@ def calculate_tax_brackets(income, brackets):
 
 # ---------------------- 核心计算函数 ----------------------
 def calculate_single_record(record, tax_resident, is_listed, listing_location):
-    """计算单条股权激励记录的收入和基础数据"""
+    """计算单条股权激励记录的收入和基础数据，新增抵税股和剩余股字段"""
     record_id = record["id"]
     incentive_tool = record["incentive_tool"]
     exercise_method = record["exercise_method"]
@@ -137,14 +137,27 @@ def calculate_single_record(record, tax_resident, is_listed, listing_location):
     exercise_income = INCENTIVE_TOOLS[incentive_tool]["income_calc"](ep, mp, eq)
     exercise_income = max(exercise_income, 0.0)
 
-    # 2. 计算单条预计算税款（最终合并后会统一计税，这里用于sell to cover计算持股数）
+    # 2. 计算单条单独计税税款（最终合并后会统一计税，这里用于sell to cover计算）
     rule = TAX_RULES[tax_resident]
-    pre_exercise_tax = calculate_tax_brackets(exercise_income, rule["exercise_tax_brackets"])
-    pre_exercise_tax = round(pre_exercise_tax, 2)
+    single_tax = calculate_tax_brackets(exercise_income, rule["exercise_tax_brackets"])
+    single_tax = round(single_tax, 2)
 
-    # 3. 计算实际持有数量（根据行权方式）
-    actual_qty = EXERCISE_METHODS[exercise_method]["actual_quantity"](eq, pre_exercise_tax, ep, mp)
+    # 3. 计算实际持有数量 + 卖股缴税专属：抵税股数、剩余股数
+    actual_qty = EXERCISE_METHODS[exercise_method]["actual_quantity"](eq, single_tax, ep, mp)
     actual_qty = max(round(actual_qty, 2), 0.0)
+
+    # 新增：卖股缴税的股数拆分
+    tax_shares = 0.0  # 抵税股出售数量
+    remaining_shares = 0.0  # 剩余到账股数
+    if exercise_method == "卖股缴税（Sell to Cover）":
+        tax_shares = round(single_tax / (mp or 1), 2)
+        tax_shares = max(tax_shares, 0.0)
+        remaining_shares = round(eq - tax_shares, 2)
+        remaining_shares = max(remaining_shares, 0.0)
+    # 其他行权方式显示占位符
+    else:
+        tax_shares = "——"
+        remaining_shares = "——"
 
     # 4. 计算转让收入和税款
     transfer_income = 0.0
@@ -166,7 +179,9 @@ def calculate_single_record(record, tax_resident, is_listed, listing_location):
         "行权/解禁日市价(元/股)": mp,
         "转让价(元/股)": tp,
         "行权收入(元)": exercise_income,
-        "预计算行权税款(元)": pre_exercise_tax,
+        "单独计税税款(元)": single_tax,
+        "抵税股出售数量(股)": tax_shares,  # 新增字段
+        "剩余到账股数(股)": remaining_shares,  # 新增字段
         "实际持有数量(股)": actual_qty,
         "转让收入(元)": transfer_income,
         "转让税款(元)": transfer_tax,
@@ -183,7 +198,7 @@ def calculate_yearly_consolidation(detail_records, tax_resident, is_listed, list
 
     if tax_resident == "中国大陆":
         if is_listed:
-            # 上市公司：单独计税，不并入综合所得，不扣除6万和专项附加
+            # 上市公司：单独计税，不并入综合所得
             total_exercise_tax = calculate_tax_brackets(total_exercise_income, rule["exercise_tax_brackets"])
             tax_form = rule["tax_form_B"]
             tax_desc = "上市公司股权激励单独计税（政策依据：财政部 税务总局公告2023年第25号）"
@@ -238,7 +253,7 @@ def generate_tax_form(yearly_result, detail_records, tax_resident):
         else:
             form_data["应纳税所得额"] = r["行权收入(元)"]
             form_data["适用税率"] = f"{rule['exercise_tax_brackets'][-1][1] * 100}%"
-            form_data["应缴税额"] = r["预计算行权税款(元)"]
+            form_data["应缴税额"] = r["单独计税税款(元)"]
         form_data_list.append(form_data)
     
     # 汇总行
@@ -269,7 +284,7 @@ def export_to_excel(detail_records, yearly_result, tax_form_df):
 
 # ---------------------- Streamlit 界面 ----------------------
 st.title("🧮 股权激励个税计算器（政策合规版）")
-st.markdown(f"### 中国大陆上市公司单独计税 | 政策依据：{TAX_RULES['中国大陆']['policy_basis']}")
+st.markdown(f"### 中国大陆上市公司单独计税 | 卖股缴税自动拆分抵税股/剩余股 | 政策依据：{TAX_RULES['中国大陆']['policy_basis']}")
 st.divider()
 
 # ---------------------- 1. 全局参数初始化 ----------------------
@@ -377,11 +392,15 @@ if calc_btn:
         # 生成报税表
         tax_form_df = generate_tax_form(yearly_result, detail_results, st.session_state.tax_resident)
 
-        st.success("✅ 计算完成！严格遵循最新税务政策")
+        st.success("✅ 计算完成！卖股缴税方式已自动拆分抵税股和剩余股")
 
-        # 4.1 单条明细
-        st.subheader("📈 单条交易明细")
-        show_cols = ["记录ID", "激励工具类型", "行权方式", "行权价/授予价(元/股)", "行权/解禁数量(股)", "行权收入(元)", "预计算行权税款(元)", "实际持有数量(股)"]
+        # 4.1 单条明细（新增两个字段展示）
+        st.subheader("📈 单条交易明细（含卖股缴税股数拆分）")
+        show_cols = [
+            "记录ID", "激励工具类型", "行权方式", "行权价/授予价(元/股)", 
+            "行权/解禁数量(股)", "行权/解禁日市价(元/股)", "行权收入(元)", 
+            "单独计税税款(元)", "抵税股出售数量(股)", "剩余到账股数(股)", "实际持有数量(股)"
+        ]
         st.dataframe(pd.DataFrame(detail_results)[show_cols], use_container_width=True)
 
         # 4.2 年度结果
