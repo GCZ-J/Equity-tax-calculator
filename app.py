@@ -256,7 +256,7 @@ def calculate_equity_tax(
     return result
 
 # ---------------------- 新增：报税表单生成函数 ----------------------
-def generate_tax_form(result, rule):
+def generate_tax_form(result, rule, tax_resident):
     """根据计算结果生成对应地区报税表单"""
     form_data = {}
     # 基础公共字段赋值
@@ -382,7 +382,7 @@ if calc_btn:
         )
         rule = TAX_RULES[st.session_state.tax_resident]
         # 生成报税表单
-        tax_form_df = generate_tax_form(result, rule)
+       tax_form_df = generate_tax_form(result, rule, st.session_state.tax_resident)
 
         # 3.1 核心计算结果
         st.subheader("📊 核心计算结果")
