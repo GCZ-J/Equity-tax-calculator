@@ -37,7 +37,7 @@ st.set_page_config(
 )
 
 # ---------------------- 核心规则配置 ----------------------
-# 1. 激励工具规则
+# 1. 激励工具规则（统一简洁键名）
 INCENTIVE_TOOLS = {
     "期权": {
         "income_formula": "行权收入 =（行权日市价 - 行权价）× 行权数量",
@@ -53,7 +53,7 @@ INCENTIVE_TOOLS = {
     }
 }
 
-# 2. 行权方式规则
+# 2. 行权方式规则（统一简洁键名）
 EXERCISE_METHODS = {
     "现金行权": {
         "desc": "现金支付行权价，全额持有股票",
@@ -263,7 +263,7 @@ st.title("股权激励计税工具")
 st.caption(TAX_RULES["中国大陆"]["policy_basis"])
 st.divider()
 
-# ---------------------- 1. 全局参数初始化 ----------------------
+# ---------------------- 1. 全局参数初始化（确保键名统一） ----------------------
 if "tax_resident" not in st.session_state:
     st.session_state.tax_resident = "中国大陆"
 if "is_listed" not in st.session_state:
@@ -271,11 +271,12 @@ if "is_listed" not in st.session_state:
 if "listing_location" not in st.session_state:
     st.session_state.listing_location = "境内"
 if "equity_records" not in st.session_state:
+    # 初始化使用新的简洁键名，避免匹配错误
     st.session_state.equity_records = [
         {
             "id": 1,
-            "incentive_tool": "期权",
-            "exercise_method": "卖股缴税",
+            "incentive_tool": "期权",          # 统一为简洁键名
+            "exercise_method": "卖股缴税",     # 统一为简洁键名
             "exercise_price": 120.0,
             "exercise_quantity": 1800,
             "exercise_market_price": 240.0,
@@ -303,6 +304,7 @@ with st.sidebar:
     with col_add:
         if st.button("添加记录"):
             new_id = len(st.session_state.equity_records) + 1
+            # 添加新记录时使用统一键名
             st.session_state.equity_records.append({
                 "id": new_id,
                 "incentive_tool": "期权",
@@ -323,21 +325,33 @@ with st.sidebar:
 
     calc_btn = st.button("计算", use_container_width=True)
 
-# ---------------------- 3. 交易记录输入 ----------------------
+# ---------------------- 3. 交易记录输入（添加容错逻辑） ----------------------
 st.subheader("交易记录")
 for idx, record in enumerate(st.session_state.equity_records):
     with st.expander(f"记录 {record['id']}", expanded=True):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
+            # 容错逻辑：如果值不存在，使用默认索引0
+            tool_keys = list(INCENTIVE_TOOLS.keys())
+            try:
+                tool_index = tool_keys.index(record["incentive_tool"])
+            except ValueError:
+                tool_index = 0  # 默认选中第一个选项
             record["incentive_tool"] = st.selectbox(
-                "激励工具类型", list(INCENTIVE_TOOLS.keys()),
-                index=list(INCENTIVE_TOOLS.keys()).index(record["incentive_tool"]),
+                "激励工具类型", tool_keys,
+                index=tool_index,
                 key=f"tool_{record['id']}"
             )
         with col2:
+            # 容错逻辑：如果值不存在，使用默认索引0
+            method_keys = list(EXERCISE_METHODS.keys())
+            try:
+                method_index = method_keys.index(record["exercise_method"])
+            except ValueError:
+                method_index = 0  # 默认选中第一个选项
             record["exercise_method"] = st.selectbox(
-                "行权方式", list(EXERCISE_METHODS.keys()),
-                index=list(EXERCISE_METHODS.keys()).index(record["exercise_method"]),
+                "行权方式", method_keys,
+                index=method_index,
                 key=f"method_{record['id']}"
             )
         with col3:
