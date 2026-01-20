@@ -106,8 +106,8 @@ TAX_RULES = {
         ],
         "transfer_tax_rate": 0.2,  # 财产转让所得税率20%
         "transfer_tax_exempt": {
-            "境内上市": True,  # 境内上市公司股票转让暂免
-            "境外上市": False  # 港美股等境外上市需缴税
+            "境内": True,  # 境内上市公司股票转让暂免
+            "境外": False  # 港美股等境外上市需缴税
         },
         "policy_basis": "财政部 税务总局公告2023年第25号"
     },
@@ -167,12 +167,15 @@ def calculate_single_record(record, tax_resident, is_listed, listing_location):
     record_id = record["id"]
     incentive_tool = record["incentive_tool"]
     exercise_method = record["exercise_method"]
-    transfer_type = record["transfer_type"]
+    # 容错：获取转让类型，默认值为"无转让"
+    transfer_type = record.get("transfer_type", "无转让")
     ep = record["exercise_price"]  # 行权价/授予价
     eq = record["exercise_quantity"]  # 行权/归属数量
     mp = record["exercise_market_price"]  # 行权/归属日市价
-    tp = record["transfer_price"]  # 转让价
-    transfer_fee_rate = record["transfer_fee_rate"]  # 转让费用率
+    # 容错：获取转让价，默认值为0
+    tp = record.get("transfer_price", 0.0)
+    # 容错：获取转让费用率，默认值为0
+    transfer_fee_rate = record.get("transfer_fee_rate", 0.0)
 
     # 1. 计算行权/归属收入（区分不同工具）
     exercise_income = INCENTIVE_TOOLS[incentive_tool]["income_calc"](ep, mp, eq)
@@ -360,7 +363,7 @@ if "tax_resident" not in st.session_state:
 if "is_listed" not in st.session_state:
     st.session_state.is_listed = True
 if "listing_location" not in st.session_state:
-    st.session_state.listing_location = "境内上市"
+    st.session_state.listing_location = "境内"
 if "tax_threshold" not in st.session_state:
     st.session_state.tax_threshold = 10000.0  # 默认1万元
 if "equity_records" not in st.session_state:
@@ -377,6 +380,15 @@ if "equity_records" not in st.session_state:
             "transfer_fee_rate": TRANSFER_TYPES["无转让"]["fee_rate"]
         }
     ]
+else:
+    # 兼容旧记录：给缺少字段的记录补充默认值
+    for record in st.session_state.equity_records:
+        if "transfer_type" not in record:
+            record["transfer_type"] = "无转让"
+        if "transfer_fee_rate" not in record:
+            record["transfer_fee_rate"] = TRANSFER_TYPES["无转让"]["fee_rate"]
+        if "transfer_price" not in record:
+            record["transfer_price"] = 0.0
 
 # ---------------------- 2. 侧边栏设置 ----------------------
 with st.sidebar:
@@ -387,7 +399,7 @@ with st.sidebar:
     st.session_state.is_listed = st.checkbox("是否上市公司", value=True)
     st.session_state.listing_location = st.selectbox(
         "上市地", 
-        ["境内上市", "境外上市（港股/美股等）"],
+        ["境内", "境外"],
         help="中国大陆居民转让境内上市股票暂免财产转让所得税"
     )
 
@@ -456,7 +468,7 @@ for idx, record in enumerate(st.session_state.equity_records):
             tool_keys = list(INCENTIVE_TOOLS.keys())
             try:
                 tool_index = tool_keys.index(record["incentive_tool"])
-            except ValueError:
+            except (ValueError, KeyError):
                 tool_index = 0
             record["incentive_tool"] = st.selectbox(
                 "激励工具类型", tool_keys,
@@ -472,7 +484,7 @@ for idx, record in enumerate(st.session_state.equity_records):
                 method_keys = ["现金结算"]
             try:
                 method_index = method_keys.index(record["exercise_method"])
-            except ValueError:
+            except (ValueError, KeyError):
                 method_index = 0
             record["exercise_method"] = st.selectbox(
                 "行权/归属方式", method_keys,
@@ -481,12 +493,14 @@ for idx, record in enumerate(st.session_state.equity_records):
                 help=EXERCISE_METHODS[method_keys[method_index]]["desc"]
             )
 
-            # 转让类型
+            # 转让类型 - 增加容错处理
             transfer_keys = list(TRANSFER_TYPES.keys())
+            # 获取转让类型，默认值为"无转让"
+            current_transfer = record.get("transfer_type", "无转让")
             try:
-                transfer_index = transfer_keys.index(record["transfer_type"])
+                transfer_index = transfer_keys.index(current_transfer)
             except ValueError:
-                transfer_index = 0
+                transfer_index = 0  # 找不到则默认选第一个
             record["transfer_type"] = st.selectbox(
                 "转让类型", transfer_keys,
                 index=transfer_index,
@@ -501,7 +515,7 @@ for idx, record in enumerate(st.session_state.equity_records):
                 price_label, 
                 min_value=0.0, 
                 step=1.0, 
-                value=record["exercise_price"], 
+                value=record.get("exercise_price", 0.0), 
                 key=f"price_{record['id']}",
                 help="RSU填0（无授予价）"
             )
@@ -509,14 +523,14 @@ for idx, record in enumerate(st.session_state.equity_records):
                 "行权/归属数量(股)", 
                 min_value=1, 
                 step=100, 
-                value=record["exercise_quantity"], 
+                value=record.get("exercise_quantity", 100), 
                 key=f"qty_{record['id']}"
             )
             record["exercise_market_price"] = st.number_input(
                 "行权/归属日市价(元/股)", 
                 min_value=0.0, 
                 step=1.0, 
-                value=record["exercise_market_price"], 
+                value=record.get("exercise_market_price", 0.0), 
                 key=f"mp_{record['id']}"
             )
 
@@ -529,17 +543,19 @@ for idx, record in enumerate(st.session_state.equity_records):
                     "转让价(元/股)", 
                     min_value=0.0, 
                     step=1.0, 
-                    value=record["transfer_price"], 
+                    value=record.get("transfer_price", 0.0), 
                     key=f"tp_{record['id']}"
                 )
             with col_t2:
                 default_fee = TRANSFER_TYPES[record["transfer_type"]]["fee_rate"]
+                # 容错：获取费用率，默认值为0
+                current_fee = record.get("transfer_fee_rate", default_fee)
                 record["transfer_fee_rate"] = st.number_input(
                     "转让费用率(%)", 
                     min_value=0.0, 
                     max_value=1.0, 
                     step=0.05, 
-                    value=round(record.get("transfer_fee_rate", default_fee) * 100, 2), 
+                    value=round(current_fee * 100, 2), 
                     key=f"fee_{record['id']}"
                 ) / 100  # 转换为小数
         else:
@@ -550,18 +566,16 @@ st.divider()
 
 # ---------------------- 4. 计算与结果展示 ----------------------
 if calc_btn:
-    input_records = [r for r in st.session_state.equity_records if r["exercise_quantity"] > 0]
+    input_records = [r for r in st.session_state.equity_records if r.get("exercise_quantity", 0) > 0]
     if not input_records:
         st.error("无有效交易记录")
     else:
-        # 适配上市地参数（简化为境内/境外）
-        listing_loc = "境内" if "境内" in st.session_state.listing_location else "境外"
         detail_results = [calculate_single_record(
-            r, st.session_state.tax_resident, st.session_state.is_listed, listing_loc
+            r, st.session_state.tax_resident, st.session_state.is_listed, st.session_state.listing_location
         ) for r in input_records]
         yearly_result = calculate_yearly_consolidation(
             detail_results, st.session_state.tax_resident, st.session_state.is_listed,
-            listing_loc, other_income, special_deduction
+            st.session_state.listing_location, other_income, special_deduction
         )
         tax_form_df = generate_tax_form(yearly_result, detail_results, st.session_state.tax_resident)
 
