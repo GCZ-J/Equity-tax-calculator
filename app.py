@@ -461,19 +461,19 @@ if calc_btn:
             "应缴税款(元)", "抵税股出售数量(股)", "剩余到账股数(股)", "实际持有数量(股)"
         ]
         detail_df = pd.DataFrame(detail_results)[show_cols]
-        # 列配置
+        # 兼容版列配置（移除align参数）
         column_config = {
-            "记录ID": st.column_config.TextColumn("记录ID", width="small", align="left"),
-            "激励工具类型": st.column_config.TextColumn("工具类型", width="medium", align="left"),
-            "行权方式": st.column_config.TextColumn("行权方式", width="medium", align="left"),
-            "行权价(元/股)": st.column_config.NumberColumn("行权价", width="small", align="right", format="%.2f"),
-            "行权数量(股)": st.column_config.NumberColumn("数量", width="small", align="right", format="%d"),
-            "行权日市价(元/股)": st.column_config.NumberColumn("市价", width="small", align="right", format="%.2f"),
-            "行权收入(元)": st.column_config.NumberColumn("行权收入", width="medium", align="right", format="%,.2f"),
-            "应缴税款(元)": st.column_config.NumberColumn("应缴税款", width="medium", align="right", format="%,.2f"),
-            "抵税股出售数量(股)": st.column_config.TextColumn("抵税股数", width="small", align="right"),
-            "剩余到账股数(股)": st.column_config.TextColumn("剩余股数", width="small", align="right"),
-            "实际持有数量(股)": st.column_config.NumberColumn("实际持股", width="small", align="right", format="%d")
+            "记录ID": st.column_config.TextColumn("记录ID", width="small"),
+            "激励工具类型": st.column_config.TextColumn("工具类型", width="medium"),
+            "行权方式": st.column_config.TextColumn("行权方式", width="medium"),
+            "行权价(元/股)": st.column_config.NumberColumn("行权价", width="small", format="%.2f"),
+            "行权数量(股)": st.column_config.NumberColumn("数量", width="small", format="%d"),
+            "行权日市价(元/股)": st.column_config.NumberColumn("市价", width="small", format="%.2f"),
+            "行权收入(元)": st.column_config.NumberColumn("行权收入", width="medium", format="%,.2f"),
+            "应缴税款(元)": st.column_config.NumberColumn("应缴税款", width="medium", format="%,.2f"),
+            "抵税股出售数量(股)": st.column_config.TextColumn("抵税股数", width="small"),
+            "剩余到账股数(股)": st.column_config.TextColumn("剩余股数", width="small"),
+            "实际持有数量(股)": st.column_config.NumberColumn("实际持股", width="small", format="%d")
         }
         # 应用条件格式化（仅应缴税款列）
         styled_detail = apply_tax_highlight(detail_df, ["应缴税款(元)"], st.session_state.tax_threshold)
@@ -490,14 +490,15 @@ if calc_btn:
             "年度股权激励总收入(元)", "年度总税款(元)", "年度净收益(元)", "计税规则说明"
         ]
         summary_df = pd.DataFrame([yearly_result])[summary_cols]
+        # 兼容版列配置
         summary_config = {
-            "税务居民身份": st.column_config.TextColumn("税务身份", width="small", align="left"),
-            "是否上市公司": st.column_config.TextColumn("是否上市", width="small", align="left"),
-            "上市地": st.column_config.TextColumn("上市地", width="small", align="left"),
-            "年度股权激励总收入(元)": st.column_config.NumberColumn("股权激励收入", width="medium", align="right", format="%,.2f"),
-            "年度总税款(元)": st.column_config.NumberColumn("总税款", width="medium", align="right", format="%,.2f"),
-            "年度净收益(元)": st.column_config.NumberColumn("净收益", width="medium", align="right", format="%,.2f"),
-            "计税规则说明": st.column_config.TextColumn("计税规则", width="large", align="left")
+            "税务居民身份": st.column_config.TextColumn("税务身份", width="small"),
+            "是否上市公司": st.column_config.TextColumn("是否上市", width="small"),
+            "上市地": st.column_config.TextColumn("上市地", width="small"),
+            "年度股权激励总收入(元)": st.column_config.NumberColumn("股权激励收入", width="medium", format="%,.2f"),
+            "年度总税款(元)": st.column_config.NumberColumn("总税款", width="medium", format="%,.2f"),
+            "年度净收益(元)": st.column_config.NumberColumn("净收益", width="medium", format="%,.2f"),
+            "计税规则说明": st.column_config.TextColumn("计税规则", width="large")
         }
         # 应用条件格式化（仅年度总税款列）
         styled_summary = apply_tax_highlight(summary_df, ["年度总税款(元)"], st.session_state.tax_threshold)
@@ -530,15 +531,16 @@ if calc_btn:
 
         # ---------------------- 报税表单（条件格式化） ----------------------
         st.subheader("报税表单")
+        # 兼容版列配置
         form_config = {
-            "记录ID": st.column_config.TextColumn("记录ID", width="small", align="left"),
-            "激励工具类型": st.column_config.TextColumn("工具类型", width="medium", align="left"),
-            "行权方式": st.column_config.TextColumn("行权方式", width="medium", align="left"),
-            "行权收入(元)": st.column_config.NumberColumn("行权收入", width="medium", align="right", format="%,.2f"),
-            "应缴税款(元)": st.column_config.NumberColumn("应缴税款", width="medium", align="right", format="%,.2f"),
-            "应纳税所得额": st.column_config.NumberColumn("应纳税所得额", width="medium", align="right", format="%,.2f"),
-            "适用税率": st.column_config.TextColumn("适用税率", width="small", align="left"),
-            "最终应缴税额": st.column_config.NumberColumn("最终税额", width="medium", align="right", format="%,.2f")
+            "记录ID": st.column_config.TextColumn("记录ID", width="small"),
+            "激励工具类型": st.column_config.TextColumn("工具类型", width="medium"),
+            "行权方式": st.column_config.TextColumn("行权方式", width="medium"),
+            "行权收入(元)": st.column_config.NumberColumn("行权收入", width="medium", format="%,.2f"),
+            "应缴税款(元)": st.column_config.NumberColumn("应缴税款", width="medium", format="%,.2f"),
+            "应纳税所得额": st.column_config.NumberColumn("应纳税所得额", width="medium", format="%,.2f"),
+            "适用税率": st.column_config.TextColumn("适用税率", width="small"),
+            "最终应缴税额": st.column_config.NumberColumn("最终税额", width="medium", format="%,.2f")
         }
         # 应用条件格式化（应缴税款+最终应缴税额列）
         styled_form = apply_tax_highlight(tax_form_df, ["应缴税款(元)", "最终应缴税额"], st.session_state.tax_threshold)
