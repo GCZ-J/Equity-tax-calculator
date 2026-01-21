@@ -1030,6 +1030,7 @@ if calc_btn:
             use_container_width=True
         )
 
-# 免责声明
+# 免责声明（修复后）
 st.divider()
-st.caption("本工具
+st.caption("""本工具仅为股权激励税款计算参考，不构成税务筹划建议。
+实际税款请以当地税务机关核定结果为准，使用前请仔细核对税率规则与政策依据。""")
