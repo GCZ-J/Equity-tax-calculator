@@ -37,11 +37,11 @@ st.set_page_config(
 )
 
 # ---------------------- 核心规则配置（税款科目拆分） ----------------------
-# 美国州税规则（核心州）
+# 美国州税规则（核心州）- 统一为三元组 (上限, 税率, 速算扣除数)
 US_STATE_TAX = {
     "联邦（无州税）": {"rate_brackets": [], "capital_gains": "联邦单独计税"},
-    "加利福尼亚州(CA)": {"rate_brackets": [(10000, 0.01), (20000, 0.02), (30000, 0.04), (40000, 0.06), (float('inf'), 0.123)], "capital_gains": "并入普通收入"},
-    "纽约州(NY)": {"rate_brackets": [(8500, 0.04), (17000, 0.045), (23000, 0.0525), (27000, 0.059), (float('inf'), 0.109)], "capital_gains": "并入普通收入"},
+    "加利福尼亚州(CA)": {"rate_brackets": [(10000, 0.01, 0), (20000, 0.02, 0), (30000, 0.04, 0), (40000, 0.06, 0), (float('inf'), 0.123, 0)], "capital_gains": "并入普通收入"},
+    "纽约州(NY)": {"rate_brackets": [(8500, 0.04, 0), (17000, 0.045, 0), (23000, 0.0525, 0), (27000, 0.059, 0), (float('inf'), 0.109, 0)], "capital_gains": "并入普通收入"},
     "德克萨斯州(TX)": {"rate_brackets": [], "capital_gains": "无州税"},
     "佛罗里达州(FL)": {"rate_brackets": [], "capital_gains": "无州税"}
 }
@@ -234,36 +234,60 @@ def calculate_german_tax(income):
     }
 
 def calculate_us_tax(income, us_state, is_cap_gains=False, holding_period="长期>1年"):
-    """美国税款拆分：联邦+州（普通收入/资本利得）"""
+    """美国税款拆分：联邦+州（普通收入/资本利得）- 修复解包逻辑+增加异常捕获"""
     income = max(income, 0.0)
     federal_tax = 0.0
     state_tax = 0.0
 
-    if is_cap_gains:
-        # 资本利得税
-        if holding_period == "长期>1年":
-            brackets = TAX_RULES["美国"]["capital_gains_brackets"]
+    try:
+        if is_cap_gains:
+            # 资本利得税
+            if holding_period == "长期>1年":
+                brackets = TAX_RULES["美国"]["capital_gains_brackets"]
+            else:
+                brackets = TAX_RULES["美国"]["federal_brackets"]
+            # 联邦资本利得税
+            applicable_rate = 0.0
+            applicable_deduction = 0.0
+            for upper, rate, deduction in brackets:
+                if income <= upper:
+                    applicable_rate = rate
+                    applicable_deduction = deduction
+                    break
+                if upper == float('inf'):
+                    applicable_rate = rate
+                    applicable_deduction = deduction
+                    break
+            federal_tax = round(income * applicable_rate - applicable_deduction, 2)
+            # 州资本利得税（适配二元组/三元组）
+            if us_state != "联邦（无州税）" and US_STATE_TAX[us_state]["rate_brackets"]:
+                state_brackets = US_STATE_TAX[us_state]["rate_brackets"]
+                applicable_rate = 0.0
+                applicable_deduction = 0.0  # 州税默认无速算扣除数
+                for bracket in state_brackets:
+                    if len(bracket) == 2:
+                        upper, rate = bracket
+                        deduction = 0.0
+                    elif len(bracket) == 3:
+                        upper, rate, deduction = bracket
+                    else:
+                        continue  # 跳过格式错误的档位
+                    if income <= upper:
+                        applicable_rate = rate
+                        applicable_deduction = deduction
+                        break
+                    if upper == float('inf'):
+                        applicable_rate = rate
+                        applicable_deduction = deduction
+                        break
+                state_tax = round(income * applicable_rate - applicable_deduction, 2)
         else:
+            # 普通收入税
+            # 联邦普通收入税
             brackets = TAX_RULES["美国"]["federal_brackets"]
-        # 联邦资本利得税
-        applicable_rate = 0.0
-        applicable_deduction = 0.0
-        for upper, rate, deduction in brackets:
-            if income <= upper:
-                applicable_rate = rate
-                applicable_deduction = deduction
-                break
-            if upper == float('inf'):
-                applicable_rate = rate
-                applicable_deduction = deduction
-                break
-        federal_tax = round(income * applicable_rate - applicable_deduction, 2)
-        # 州资本利得税（多数州并入普通收入）
-        if us_state != "联邦（无州税）" and US_STATE_TAX[us_state]["rate_brackets"]:
-            state_brackets = US_STATE_TAX[us_state]["rate_brackets"]
             applicable_rate = 0.0
             applicable_deduction = 0.0
-            for upper, rate, deduction in state_brackets:
+            for upper, rate, deduction in brackets:
                 if income <= upper:
                     applicable_rate = rate
                     applicable_deduction = deduction
@@ -272,38 +296,34 @@ def calculate_us_tax(income, us_state, is_cap_gains=False, holding_period="长�
                     applicable_rate = rate
                     applicable_deduction = deduction
                     break
-            state_tax = round(income * applicable_rate - applicable_deduction, 2)
-    else:
-        # 普通收入税
-        # 联邦普通收入税
-        brackets = TAX_RULES["美国"]["federal_brackets"]
-        applicable_rate = 0.0
-        applicable_deduction = 0.0
-        for upper, rate, deduction in brackets:
-            if income <= upper:
-                applicable_rate = rate
-                applicable_deduction = deduction
-                break
-            if upper == float('inf'):
-                applicable_rate = rate
-                applicable_deduction = deduction
-                break
-        federal_tax = round(income * applicable_rate - applicable_deduction, 2)
-        # 州普通收入税
-        if us_state != "联邦（无州税）" and US_STATE_TAX[us_state]["rate_brackets"]:
-            state_brackets = US_STATE_TAX[us_state]["rate_brackets"]
-            applicable_rate = 0.0
-            applicable_deduction = 0.0
-            for upper, rate, deduction in state_brackets:
-                if income <= upper:
-                    applicable_rate = rate
-                    applicable_deduction = deduction
-                    break
-                if upper == float('inf'):
-                    applicable_rate = rate
-                    applicable_deduction = deduction
-                    break
-            state_tax = round(income * applicable_rate - applicable_deduction, 2)
+            federal_tax = round(income * applicable_rate - applicable_deduction, 2)
+            # 州普通收入税（适配二元组/三元组）
+            if us_state != "联邦（无州税）" and US_STATE_TAX[us_state]["rate_brackets"]:
+                state_brackets = US_STATE_TAX[us_state]["rate_brackets"]
+                applicable_rate = 0.0
+                applicable_deduction = 0.0  # 州税默认无速算扣除数
+                for bracket in state_brackets:
+                    if len(bracket) == 2:
+                        upper, rate = bracket
+                        deduction = 0.0
+                    elif len(bracket) == 3:
+                        upper, rate, deduction = bracket
+                    else:
+                        continue  # 跳过格式错误的档位
+                    if income <= upper:
+                        applicable_rate = rate
+                        applicable_deduction = deduction
+                        break
+                    if upper == float('inf'):
+                        applicable_rate = rate
+                        applicable_deduction = deduction
+                        break
+                state_tax = round(income * applicable_rate - applicable_deduction, 2)
+    except Exception as e:
+        # 捕获所有异常，避免工具崩溃
+        st.warning(f"美国税款计算临时异常: {str(e)}，已默认返回0税款")
+        federal_tax = 0.0
+        state_tax = 0.0
     
     return {
         "federal_tax": federal_tax,
@@ -1030,7 +1050,7 @@ if calc_btn:
             use_container_width=True
         )
 
-# 免责声明（修复后）
+# 免责声明（修复字符串未闭合问题）
 st.divider()
 st.caption("""本工具仅为股权激励税款计算参考，不构成税务筹划建议。
 实际税款请以当地税务机关核定结果为准，使用前请仔细核对税率规则与政策依据。""")
